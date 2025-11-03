@@ -35,3 +35,4 @@ zip -q -r "$OUT_DIR/teams-app.zip" "color.png" "outline.png" "dist/manifest.json
 popd >/dev/null
 
 echo "✅ Teams app package created at: $OUT_DIR/teams-app.zip"
+ 
