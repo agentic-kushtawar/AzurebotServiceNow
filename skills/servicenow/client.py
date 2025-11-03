@@ -13,6 +13,7 @@ import base64
 import time
 import httpx
 from loguru import logger
+from typing import Optional
 
 
 class ServiceNowClient:
@@ -37,6 +38,24 @@ class ServiceNowClient:
             },
             timeout=self.timeout,
         )
+
+    async def get_user_sys_id(self, user_name: str) -> Optional[str]:
+        """
+        Resolve a sys_user by user_name (User ID). Returns sys_id or None.
+        """
+        if not user_name:
+            return None
+        resp = await self._request(
+            "GET",
+            f"/api/now/table/sys_user"
+            f"?sysparm_query=user_name={user_name}"
+            f"&sysparm_fields=sys_id"
+            f"&sysparm_limit=1"
+        )
+        results = resp.json().get("result") or []
+        return (results[0] or {}).get("sys_id") if results else None
+
+
 
     async def close(self):
         await self._client.aclose()
