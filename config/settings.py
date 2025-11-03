@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     SNOW_BASE_URL: str = ""
     SNOW_USERNAME: str = ""
     SNOW_PASSWORD: str = ""
-    FEATURE_SNOW_ENABLED: bool = False
+    FEATURE_SNOW_ENABLED: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
