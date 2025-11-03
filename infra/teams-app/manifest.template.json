@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.14",
+  "version": "0.1.0",
+  "id": "${TEAMS_APP_ID}",
+
+  "developer": {
+    "name": "Chandan Kushtawar",
+    "websiteUrl": "${DEVELOPER_WEBSITE_URL}",
+    "privacyUrl": "${DEVELOPER_PRIVACY_URL}",
+    "termsOfUseUrl": "${DEVELOPER_TOS_URL}"
+  },
+
+  "name": {
+    "short": "Service Desk (Dev)",
+    "full": "Service Desk – Azure OpenAI + ServiceNow (Dev)"
+  },
+  "description": {
+    "short": "Service desk assistant (password reset, VPN help, SNOW tickets).",
+    "full": "A modular Teams bot that handles IT requests: password reset guidance, VPN/app access help, how-to answers via RAG, and ServiceNow ticket creation and status."
+  },
+
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#6264A7",
+
+  "bots": [
+    {
+      "botId": "${BOT_MICROSOFT_APP_ID}",
+      "scopes": ["personal"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal"],
+          "commands": [
+            { "title": "help", "description": "Show what I can do" },
+            { "title": "reset password", "description": "Guide a password reset" },
+            { "title": "vpn help", "description": "Troubleshoot VPN or open a ticket" }
+          ]
+        }
+      ]
+    }
+  ],
+
+  "validDomains": [
+    "${PUBLIC_BASE_HOST}"
+  ]
+}
