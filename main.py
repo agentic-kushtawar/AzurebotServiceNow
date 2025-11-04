@@ -2,6 +2,9 @@
 from fastapi import FastAPI, Request, Response
 from loguru import logger
 import time, uuid
+from dotenv import load_dotenv
+
+load_dotenv()  # loads .env from project root into process env
 
 # Routers (import BEFORE including)
 from apps.teams_bot.routes import router as bot_router

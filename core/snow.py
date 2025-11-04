@@ -5,6 +5,8 @@ from threading import Lock
 from config.settings import settings
 from skills.servicenow import ServiceNowClient
 
+__all__ = ["get_snow", "ServiceNowClient"]
+
 _client: Optional[ServiceNowClient] = None
 _lock = Lock()
 

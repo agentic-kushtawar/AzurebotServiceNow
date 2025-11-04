@@ -1,83 +1,178 @@
-# core/orchestrator/engine.py
 from __future__ import annotations
+import os
+from typing import Any, Dict, Optional
 
-from typing import Any
-from loguru import logger
-
-from core.metrics import METRICS
-from core.orchestrator.state import session_for
-from core.orchestrator.intent_types import Intent
-
-
-
-# intent modules (rule-based)
-from .intents import (
-    ticket_create,        # we’ll detect "open a ticket..." here first
-    ticket_status,        # "status INC0012345"
-    password_reset,       # "reset my password", "instructions"
-    vpn,                  # "vpn help", "vpn keeps disconnecting"
-    help as help_intent,  # "help"
-    fallback,             # default safe message
-    
+from core.llm.client import LLM
+from core.orchestrator.llm_router import LLMIntentRouter, IntentResult
+from core.snow import get_snow
+from config.settings import settings
+from core.orchestrator.playbooks import (
+    password_reset_playbook,
+    help_playbook,
+    vpn_tip_playbook,
 )
 
+# ---------- helpers ----------
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "on"}
+
+async def _resolve_caller_id(user: Dict[str, Any]) -> Optional[str]:
+    client = get_snow()
+
+    email = (user.get("user_email") or "").strip()
+    if email:
+        try:
+            sys_id = await client.get_user_sys_id(email)
+            if sys_id:
+                return sys_id
+        except Exception:
+            pass
+
+    name = (user.get("user_name") or "").strip()
+    if name:
+        try:
+            sys_id = await client.get_user_sys_id(name)
+            if sys_id:
+                return sys_id
+        except Exception:
+            pass
+
+    fallback = (getattr(settings, "SNOW_CALLER_USER", "") or "").strip()
+    if fallback:
+        try:
+            sys_id = await client.get_user_sys_id(fallback)
+            return sys_id or fallback
+        except Exception:
+            return fallback
+    return None
+
+# ---------- handlers (SNOW-backed + playbooks) ----------
+
+async def handle_ticket_create(reason: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    client = get_snow()
+
+    caller_id = await _resolve_caller_id(user)
+    short = reason or "Ticket creation requested"
+    desc = f"Requested by {user.get('user_name') or user.get('user_id') or 'unknown'} via Teams."
+
+    inc_number = await client.create_incident(
+        short_description=short,
+        description=desc,
+        category="inquiry",
+        subcategory="general",
+        impact="3",
+        urgency="3",
+        caller_id=caller_id,
+    )
+
+    state = ""
+    try:
+        rec = await client.get_incident(inc_number)
+        if rec:
+            state = (rec.get("state") or "").strip()
+    except Exception:
+        state = ""
+
+    return {
+        "ok": bool(inc_number),
+        "action": "ticket_create",
+        "reason": reason,
+        "inc_number": inc_number,
+        "state": state,
+    }
+
+async def handle_ticket_status(inc_number: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    client = get_snow()
+    rec = await client.get_incident(inc_number)
+    return {
+        "ok": bool(rec),
+        "action": "ticket_status",
+        "inc_number": inc_number,
+        "state": (rec or {}).get("state", ""),
+        "short_description": (rec or {}).get("short_description", ""),
+    }
+
+async def handle_password_reset(user: Dict[str, Any]) -> Dict[str, Any]:
+    # Stub → return playbook steps
+    return {"ok": True, "action": "password_reset", "text": password_reset_playbook(user)}
+
+async def handle_vpn_proposal(reason: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Don't auto-create. Offer to raise a ticket + show quick tips.
+    The bot will render buttons; if user confirms, we'll create via a command.
+    """
+    return {
+        "ok": True,
+        "action": "propose_ticket",      # <-- important: bot shows confirmation UI
+        "reason": reason or "VPN not connecting",
+        "tips": vpn_tip_playbook(),
+    }
+
+async def handle_help(user: Dict[str, Any]) -> Dict[str, Any]:
+    return {"ok": True, "action": "help", "text": help_playbook()}
+
+# ---------- legacy fallback ----------
+
+async def legacy_route(text: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    return {"ok": True, "action": "legacy", "text": text}
+
+# ---------- Orchestrator ----------
 
 class Orchestrator:
     """
-    Small dispatcher that chooses an intent module, then calls its handler.
-
-    Design goals:
-    - Keep 'engine' thin: detection order + delegating to intent modules.
-    - Put domain logic (SNOW calls, text templates) inside intent modules.
-    - Make 'ticket_create' win over VPN/help when user starts with "open a ticket ...".
+    LLM-first router with graceful fallback to legacy rules.
+    Also supports simple command-style messages from buttons:
+      - "create_ticket:<reason>"
+      - "cancel_ticket"
     """
+    def __init__(self):
+        self.use_llm = _env_bool("FEATURE_LLM_ROUTER", False)
+        if self.use_llm:
+            llm = LLM.auto()
+            self.router = LLMIntentRouter(llm)
+        else:
+            self.router = None
 
-    def __init__(self) -> None:
-        pass
+    async def handle(self, text: str, user: Dict[str, Any]) -> Dict[str, Any]:
+        # 1) Handle button/command short-circuits
+        lower = (text or "").strip().lower()
+        if lower.startswith("create_ticket:"):
+            reason = text.split(":", 1)[1].strip() if ":" in text else ""
+            return await handle_ticket_create(reason=reason, user=user)
+        if lower.startswith("cancel_ticket"):
+            return {"ok": True, "action": "help", "text": help_playbook()}
 
-    async def handle(self, text: str, user: Any, locale: str = "en") -> str:
-        # basic counters
-        METRICS.inc("messages")
+        # 2) Normal router flow
+        if self.use_llm and self.router:
+            try:
+                res: IntentResult = await self.router.classify(text)
+                intent = (res.intent or "other").strip().lower()
 
-        sess = session_for(user)
-        t = (text or "").strip()
+                if intent == "ticket_create":
+                    # If the user clearly said "raise a ticket for <X>", create directly.
+                    # If the message is more like a problem description, propose first.
+                    reason = res.reason or ""
+                    if reason and any(k in lower for k in ["raise a ticket", "open a ticket", "create a ticket"]):
+                        return await handle_ticket_create(reason=reason, user=user)
+                    return await handle_vpn_proposal(reason=reason, user=user)
 
-        # 0) Empty input → help
-        if not t:
-            logger.debug("Empty message → help")
-            return await help_intent.handle()
+                if intent == "ticket_status" and res.inc_number:
+                    return await handle_ticket_status(inc_number=res.inc_number, user=user)
 
-        # 1) Ticket CREATE must run BEFORE other domain intents so
-        #    "open a ticket: vpn can't connect..." creates an incident
-        is_create, reason = ticket_create.detect_ticket_create(t)
-        if is_create:
-            logger.debug("Detected ticket_create; reason={!r}", reason)
-            # let the ticket_create module decide SNOW payloads and formatting
-            return await ticket_create.handle(reason=reason, user=user)
+                if intent == "password_reset":
+                    return await handle_password_reset(user=user)          # playbook
 
-        # 2) Ticket STATUS (returns tuple from its matcher)
-        status_match = ticket_status.match(t, sess)
-        if isinstance(status_match, tuple):
-            _, number = status_match  # (Intent.TICKET_STATUS, "INC0012345")
-            logger.debug("Detected ticket_status; number={}", number)
-            return await ticket_status.handle(number)
+                if intent == "vpn":
+                    # VPN problem described → propose, don't auto-create
+                    return await handle_vpn_proposal(reason=res.reason, user=user)
 
-        # 3) Other intents in order: password → vpn → help
-        for matcher in (password_reset.match, vpn.match, help_intent.match):
-            intent = matcher(t, sess)
-            if intent:
-                match intent:
-                    case Intent.PASSWORD_RESET | Intent.RESET_INSTRUCTIONS | Intent.TICKET_CREATE:
-                        # NOTE: password_reset.handle knows how to render
-                        #       greeting/steps or delegate to its own flows.
-                        return await password_reset.handle(intent, t, user)
+                if intent in {"help", "other"}:
+                    return await handle_help(user=user)                    # playbook
+            except Exception:
+                pass
 
-                    case Intent.VPN_HELP:
-                        return await vpn.handle()
-
-                    case Intent.HELP:
-                        return await help_intent.handle()
-
-        # 4) Fallback
-        logger.debug("No matcher hit → fallback")
-        return await fallback.handle()
+        return await legacy_route(text, user)
