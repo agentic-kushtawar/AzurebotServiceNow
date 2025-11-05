@@ -4,6 +4,7 @@ from typing import Any, Dict
 from botbuilder.core import ActivityHandler, TurnContext, MessageFactory
 from botbuilder.schema import SuggestedActions, CardAction, ActionTypes
 from core.orchestrator.engine import Orchestrator
+from core.telemetry.ids import current_run_id
 
 class TeamsBot(ActivityHandler):
     def __init__(self):

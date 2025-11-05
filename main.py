@@ -3,6 +3,8 @@ from fastapi import FastAPI, Request, Response
 from loguru import logger
 import time, uuid
 from dotenv import load_dotenv
+from core.telemetry.otel import setup_tracing
+from middleware.telemetry import TelemetryMiddleware
 
 load_dotenv()  # loads .env from project root into process env
 
@@ -11,9 +13,14 @@ from apps.teams_bot.routes import router as bot_router
 from skills.directory_mock import router as directory_router
 from dev.dev_routes import router as dev_router
 
+from core.telemetry.otel import setup_tracing, setup_log_export
 from core.metrics import METRICS
 
 app = FastAPI(title="Teams AI Service Desk (MVP)")
+setup_tracing(app)                 # enables App Insights traces if conn string present
+setup_log_export()      # Python logs to App Insights 'traces' table
+app.add_middleware(TelemetryMiddleware)   # structured REQ/RES logs
+
 
 # Health
 @app.get("/healthz")

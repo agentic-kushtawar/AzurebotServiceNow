@@ -14,3 +14,15 @@ tenacity==8.4.2
 pytest==8.3.3
 pytest-asyncio==0.24.0
 python-dotenv==1.0.1
+
+
+
+# ---- OpenTelemetry (pinned for compatibility) ----
+opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
+opentelemetry-instrumentation-fastapi==0.48b0
+opentelemetry-instrumentation-httpx==0.48b0
+azure-monitor-opentelemetry-exporter==1.0.0b26
+
+
+opencensus-ext-azure==1.1.9
