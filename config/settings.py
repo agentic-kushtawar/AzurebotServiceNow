@@ -17,11 +17,13 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# --- make sure the Bot Framework SDK sees single-tenant env keys ---
-os.environ["MicrosoftAppId"] = settings.BOT_MICROSOFT_APP_ID
-os.environ["MicrosoftAppPassword"] = settings.BOT_MICROSOFT_APP_PASSWORD
-os.environ["MicrosoftAppType"] = "SingleTenant"
-os.environ["MicrosoftAppTenantId"] = settings.BOT_MICROSOFT_APP_TENANT_ID
+# --- make sure the Bot Framework SDK
+
+# Force multi-tenant at runtime: no tenant hint
+if (os.getenv("MicrosoftAppType") or "").strip().lower() == "multitenant":
+    # Remove any tenant values that might be carried over from other env names
+    os.environ.pop("MicrosoftAppTenantId", None)
+    os.environ.pop("BOT_MICROSOFT_APP_TENANT_ID", None)
 
 
 

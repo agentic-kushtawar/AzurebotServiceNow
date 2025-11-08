@@ -1,0 +1,58 @@
+{
+  "etag": "\"f2019f48-0000-0d00-0000-690e3ed80000\"",
+  "id": "/subscriptions/8832d603-25ec-45cf-9976-930f898b5419/resourceGroups/rg-botrg-germany/providers/Microsoft.BotService/botServices/servicedesk-bot-dev",
+  "kind": "azurebot",
+  "location": "global",
+  "name": "servicedesk-bot-dev",
+  "properties": {
+    "allSettings": null,
+    "appPasswordHint": "",
+    "botDefinition": null,
+    "cmekEncryptionStatus": "Off",
+    "cmekKeyVaultUrl": null,
+    "configuredChannels": [
+      "webchat",
+      "directline",
+      "msteams"
+    ],
+    "description": "Test-Purpose",
+    "developerAppInsightKey": null,
+    "developerAppInsightsApplicationId": null,
+    "disableLocalAuth": false,
+    "displayName": "servicedesk-bot-dev",
+    "enabledChannels": [
+      "webchat",
+      "directline",
+      "msteams"
+    ],
+    "endpoint": "https://kamron-existentialistic-tripinnately.ngrok-free.dev/api/messages",
+    "endpointVersion": "3.0",
+    "iconUrl": "//bot-framework.azureedge.net/bot-icons-v1/servicedesk-bot-dev_Ebt7sXBb1CQa3g09cCFKoB1eDNUDhb637G2jEyZ2k78JR7ZI.png",
+    "isAzureBotCreatedInMcsByAbs": false,
+    "isCmekEnabled": false,
+    "isDeveloperAppInsightsApiKeySet": false,
+    "isStreamingSupported": false,
+    "luisAppIds": [],
+    "manifestUrl": null,
+    "mcsFederatedCredentialSubjectId": null,
+    "migrationToken": null,
+    "msaAppId": "4519fd2c-585e-4b22-b280-1a1919bc7fe2",
+    "msaAppMSIResourceId": "",
+    "msaAppTenantId": "982ad00f-67b9-4715-8a80-bcadaedd2f1f",
+    "msaAppType": "SingleTenant",
+    "openWithHint": "",
+    "parameters": null,
+    "provisioningState": "Succeeded",
+    "publicNetworkAccess": null,
+    "publishingCredentials": null,
+    "schemaTransformationVersion": "1.3",
+    "storageResourceId": null,
+    "tenantId": "982ad00f-67b9-4715-8a80-bcadaedd2f1f"
+  },
+  "sku": {
+    "name": "S1"
+  },
+  "tags": {},
+  "type": "Microsoft.BotService/botServices",
+  "zones": []
+}

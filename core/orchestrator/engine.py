@@ -1,3 +1,4 @@
+# core/orchestrator/engine.py
 from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
@@ -21,6 +22,10 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return val.strip().lower() in {"1", "true", "yes", "on"}
 
 async def _resolve_caller_id(user: Dict[str, Any]) -> Optional[str]:
+    """
+    Best-effort mapping of Teams user -> ServiceNow caller.
+    Tries email, then display name, then SNOW_CALLER_USER fallback.
+    """
     client = get_snow()
 
     email = (user.get("user_email") or "").strip()
@@ -48,9 +53,10 @@ async def _resolve_caller_id(user: Dict[str, Any]) -> Optional[str]:
             return sys_id or fallback
         except Exception:
             return fallback
+
     return None
 
-# ---------- handlers (SNOW-backed + playbooks) ----------
+# ---------- SNOW-backed handlers ----------
 
 async def handle_ticket_create(reason: str, user: Dict[str, Any]) -> Dict[str, Any]:
     client = get_snow()
@@ -97,17 +103,17 @@ async def handle_ticket_status(inc_number: str, user: Dict[str, Any]) -> Dict[st
     }
 
 async def handle_password_reset(user: Dict[str, Any]) -> Dict[str, Any]:
-    # Stub → return playbook steps
+    # Playbook-only stub (no SNOW call)
     return {"ok": True, "action": "password_reset", "text": password_reset_playbook(user)}
 
 async def handle_vpn_proposal(reason: str, user: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Don't auto-create. Offer to raise a ticket + show quick tips.
-    The bot will render buttons; if user confirms, we'll create via a command.
+    Don’t auto-create for generic VPN issues; propose a ticket and add tips.
+    UI renders Yes/No in bot.py when action == 'propose_ticket'.
     """
     return {
         "ok": True,
-        "action": "propose_ticket",      # <-- important: bot shows confirmation UI
+        "action": "propose_ticket",
         "reason": reason or "VPN not connecting",
         "tips": vpn_tip_playbook(),
     }
@@ -130,7 +136,10 @@ class Orchestrator:
       - "cancel_ticket"
     """
     def __init__(self):
+        # Keep both names for backward compatibility with older code/flags.
         self.use_llm = _env_bool("FEATURE_LLM_ROUTER", False)
+        self.use_llm_router = self.use_llm
+
         if self.use_llm:
             llm = LLM.auto()
             self.router = LLMIntentRouter(llm)
@@ -138,41 +147,45 @@ class Orchestrator:
             self.router = None
 
     async def handle(self, text: str, user: Dict[str, Any]) -> Dict[str, Any]:
-        # 1) Handle button/command short-circuits
+        # 1) Button/command short-circuits
         lower = (text or "").strip().lower()
+
         if lower.startswith("create_ticket:"):
             reason = text.split(":", 1)[1].strip() if ":" in text else ""
             return await handle_ticket_create(reason=reason, user=user)
+
         if lower.startswith("cancel_ticket"):
             return {"ok": True, "action": "help", "text": help_playbook()}
 
-        # 2) Normal router flow
+        # 2) Normal router flow (LLM) with safe fallback
         if self.use_llm and self.router:
             try:
                 res: IntentResult = await self.router.classify(text)
                 intent = (res.intent or "other").strip().lower()
 
                 if intent == "ticket_create":
-                    # If the user clearly said "raise a ticket for <X>", create directly.
-                    # If the message is more like a problem description, propose first.
                     reason = res.reason or ""
+                    # If the user explicitly asked to “raise/open/create a ticket”, create directly.
                     if reason and any(k in lower for k in ["raise a ticket", "open a ticket", "create a ticket"]):
                         return await handle_ticket_create(reason=reason, user=user)
+                    # Otherwise propose a ticket with tips (good UX for fuzzy problem statements).
                     return await handle_vpn_proposal(reason=reason, user=user)
 
                 if intent == "ticket_status" and res.inc_number:
                     return await handle_ticket_status(inc_number=res.inc_number, user=user)
 
                 if intent == "password_reset":
-                    return await handle_password_reset(user=user)          # playbook
+                    return await handle_password_reset(user=user)
 
                 if intent == "vpn":
-                    # VPN problem described → propose, don't auto-create
                     return await handle_vpn_proposal(reason=res.reason, user=user)
 
                 if intent in {"help", "other"}:
-                    return await handle_help(user=user)                    # playbook
+                    return await handle_help(user=user)
+
             except Exception:
+                # Any LLM/parse issue → legacy passthrough
                 pass
 
+        # 3) Legacy behavior
         return await legacy_route(text, user)
