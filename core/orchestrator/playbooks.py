@@ -39,3 +39,15 @@ def vpn_tip_playbook() -> str:
         "3) Verify time/date are correct.\n"
         "4) If still failing, I can raise a ticket for you."
     )
+
+def ticket_propose_playbook() -> str:
+    """
+    Generic proposal / how-to tips shown when user says e.g. 'open a ticket' without details.
+    """
+    return (
+        "Here’s how to proceed:\n"
+        "• Create now: **create_ticket: <short reason>**\n"
+        "   e.g., create_ticket: Outlook keeps crashing\n"
+        "• Or say: **open a ticket: <short reason>**\n"
+        "• Check later: **status of INC0012345**"
+    )

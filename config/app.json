@@ -1,0 +1,5 @@
+{
+  "feature_flags": { "lang_es_enabled": true },
+  "default_language": "en",
+  "supported_languages": ["en","es"]
+}

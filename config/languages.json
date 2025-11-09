@@ -1,0 +1,11 @@
+{
+  "default": "en",
+  "locales": {
+    "en": { "enabled": true,  "label": "English",  "beta": false },
+    "es": { "enabled": true,  "label": "Español",  "beta": true  }
+  },
+  "banners": {
+    "en": "Temporarily responding in English due to a translation issue.",
+    "es": "Temporalmente respondo en inglés por un problema de traducción."
+  }
+}

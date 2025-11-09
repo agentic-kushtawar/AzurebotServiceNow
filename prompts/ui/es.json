@@ -1,0 +1,21 @@
+{
+  "lang_change": "Cambiar idioma",
+  "current_language_choose": "Idioma actual: {lang}. Elige:",
+  "english": "Inglés",
+  "spanish": "Español",
+
+  "help_text": "Puedes probar:\n• «crear un ticket: <motivo>»\n• «estado de INC0012345»\n• «restablecer mi contraseña»\n• «vpn no conecta»",
+  "switch_hint": "_Escribe **/language en** o elige abajo para cambiar._",
+
+  "propose_title": "🛠 Puedo crear un ticket para:",
+  "propose_question": "¿Quieres que lo cree ahora?",
+
+  "btn_create": "✅ Crear ticket",
+  "btn_cancel": "No, gracias",
+
+  "created_prefix": "✅ Ticket creado",
+  "created_for": "para",
+
+  "language_set": "Idioma configurado a {lang}.",
+  "continue_below": "Puedes continuar abajo."
+}

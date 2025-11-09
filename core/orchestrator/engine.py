@@ -11,6 +11,7 @@ from core.orchestrator.playbooks import (
     password_reset_playbook,
     help_playbook,
     vpn_tip_playbook,
+    ticket_propose_playbook,   # NEW: generic tips for proposals
 )
 
 # ---------- helpers ----------
@@ -118,6 +119,17 @@ async def handle_vpn_proposal(reason: str, user: Dict[str, Any]) -> Dict[str, An
         "tips": vpn_tip_playbook(),
     }
 
+async def handle_ticket_proposal(reason: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generic proposal + how-to tips (used for bare 'open a ticket', etc.).
+    """
+    return {
+        "ok": True,
+        "action": "propose_ticket",
+        "reason": reason or "an issue",
+        "tips": ticket_propose_playbook(),
+    }
+
 async def handle_help(user: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "action": "help", "text": help_playbook()}
 
@@ -136,7 +148,6 @@ class Orchestrator:
       - "cancel_ticket"
     """
     def __init__(self):
-        # Keep both names for backward compatibility with older code/flags.
         self.use_llm = _env_bool("FEATURE_LLM_ROUTER", False)
         self.use_llm_router = self.use_llm
 
@@ -164,12 +175,11 @@ class Orchestrator:
                 intent = (res.intent or "other").strip().lower()
 
                 if intent == "ticket_create":
-                    reason = res.reason or ""
-                    # If the user explicitly asked to “raise/open/create a ticket”, create directly.
-                    if reason and any(k in lower for k in ["raise a ticket", "open a ticket", "create a ticket"]):
+                    # LLM decides: create if it extracted a reason; otherwise propose.
+                    reason = (res.reason or "").strip()
+                    if reason:
                         return await handle_ticket_create(reason=reason, user=user)
-                    # Otherwise propose a ticket with tips (good UX for fuzzy problem statements).
-                    return await handle_vpn_proposal(reason=reason, user=user)
+                    return await handle_ticket_proposal(reason="", user=user)
 
                 if intent == "ticket_status" and res.inc_number:
                     return await handle_ticket_status(inc_number=res.inc_number, user=user)
@@ -178,9 +188,14 @@ class Orchestrator:
                     return await handle_password_reset(user=user)
 
                 if intent == "vpn":
+                    # Keep VPN-specific proposal (with VPN tips)
                     return await handle_vpn_proposal(reason=res.reason, user=user)
 
                 if intent in {"help", "other"}:
+                    # Backstop: if the user mentions tickets but gave no details,
+                    # propose creating a ticket instead of falling through to "Sorry..."
+                    if any(w in lower for w in ("ticket", "incident", "case")):
+                        return await handle_ticket_proposal(reason="", user=user)
                     return await handle_help(user=user)
 
             except Exception:

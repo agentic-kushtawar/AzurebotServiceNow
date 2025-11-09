@@ -1,43 +1,125 @@
 from __future__ import annotations
 from typing import Any, Dict
+import logging
 import re
 
 from botbuilder.core import ActivityHandler, TurnContext, MessageFactory
 from botbuilder.schema import SuggestedActions, CardAction, ActionTypes
-from botframework.connector.auth import MicrosoftAppCredentials
 
+# Orchestrator (kept as-is)
 from core.orchestrator.engine import Orchestrator
-from core.telemetry.ids import current_run_id
+
+# i18n
+from core.i18n.adapter import detect, translate
+from core.i18n.lang_store import get_user_lang, set_user_lang
+from core.i18n.policy import enabled_locales, label_for
+from core.i18n.strings import t
+
+log = logging.getLogger("app")
 
 
 class TeamsBot(ActivityHandler):
-    def __init__(self):
+    """
+    Teams chat bot façade.
+    - Translates inbound to EN (reasoning pivot), outbound back to user's locale.
+    - Localizes fixed UI strings via prompts/ui/*.json through t(key, locale).
+    - Delegates intent handling to core.orchestrator.engine.Orchestrator.
+    """
+
+    def __init__(self) -> None:
         super().__init__()
         self.orchestrator = Orchestrator()
 
-    # ---------- helpers ----------
-    async def _send_help(self, turn_context: TurnContext) -> None:
-        await turn_context.send_activity(
-            MessageFactory.text("You can try:\n\n• “raise a ticket: ”\n• “status of INC0012345”\n• “reset my password”")
-        )
+    # -------------------------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------------------------
 
-    async def _propose_ticket_ui(self, turn_context: TurnContext, reason: str) -> None:
-        reason = (reason or "your issue").strip()
-        prompt = f"🛠 I can raise a ticket for: **{reason}**.\nWould you like me to create it?"
+    def _user_from_context(self, turn_context: TurnContext) -> Dict[str, Any]:
+        a = turn_context.activity
+        user_id = (a.from_property and a.from_property.id) or ""
+        user_name = (a.from_property and a.from_property.name) or ""
+        user_email = ""
+        teams_locale = (a.locale or "en").split("-")[0].lower()
+        # prefer saved preference; else Teams locale; else detect on the fly
+        saved = get_user_lang(user_id)
+        resolved = saved or teams_locale
+        return {
+            "user_id": user_id,
+            "user_name": user_name,
+            "user_email": user_email,
+            "locale": resolved or "en",
+            "channel": a.channel_id or "msteams",
+        }
+
+    def _language_suggested_actions(self, current_lang: str) -> SuggestedActions:
+        """
+        Show a non-action chip for current locale + real actions for the other enabled locales.
+        Labels are localized to the viewer's current language.
+        """
+        # Localized label for the "chip" (just show the name of the current language)
+        chip_label = t("spanish", current_lang) if current_lang == "es" else t("english", current_lang)
+        actions = [
+            CardAction(type=ActionTypes.im_back, title=f"🌐 {chip_label}", value="noop_lang")
+        ]
+        for code in enabled_locales().keys():
+            if code == current_lang:
+                continue
+            label = t("spanish", current_lang) if code == "es" else t("english", current_lang)
+            actions.append(CardAction(type=ActionTypes.im_back, title=label, value=f"/language {code}"))
+        return SuggestedActions(actions=actions)
+
+    async def _send_help(self, turn_context, user_lang):
+        text_out = f"{t('help_text', user_lang)}\n{t('switch_hint', user_lang)}"
+        msg = MessageFactory.text(text_out)
+        msg.suggested_actions = self._language_suggested_actions(user_lang)
+        await turn_context.send_activity(msg)
+
+    async def _propose_ticket_ui(
+        self, turn_context: TurnContext, reason_en: str, tips_en: str, user_lang: str
+    ) -> None:
+        """
+        Localize proposal UI using t(...), translate only dynamic content (reason/tips).
+        """
+        # Fixed UI text from locale files
+        title = t("propose_title", user_lang)
+        question = t("propose_question", user_lang)
+
+        # Dynamic parts (translate without banner)
+        reason_disp = reason_en or "your issue"
+        tips_disp = tips_en or ""
+        if user_lang != "en":
+            reason_disp = translate(reason_disp, "en", user_lang, banner=False)
+            if tips_disp:
+                tips_disp = translate(tips_disp, "en", user_lang, banner=False)
+
+        prompt = f"{title} **{reason_disp}**.\n{question}"
+        if tips_disp:
+            prompt += f"\n\n{tips_disp}"
+
+        # Buttons (labels from locale files; values stay EN for routing simplicity)
+        btn_yes = t("btn_create", user_lang)
+        btn_no = t("btn_cancel", user_lang)
+
         msg = MessageFactory.text(prompt)
-        msg.suggested_actions = SuggestedActions(
-            actions=[
-                CardAction(type=ActionTypes.im_back, title="✅ Create ticket", value=f"create_ticket:{reason}"),
-                CardAction(type=ActionTypes.im_back, title="No thanks", value="cancel_ticket"),
-            ]
+        msg.suggested_actions = self._language_suggested_actions(user_lang)
+        msg.suggested_actions.actions.insert(
+            0, CardAction(type=ActionTypes.im_back, title=btn_yes, value=f"create_ticket:{reason_en}")
+        )
+        msg.suggested_actions.actions.insert(
+            1, CardAction(type=ActionTypes.im_back, title=btn_no, value="cancel_ticket")
         )
         await turn_context.send_activity(msg)
 
-    def _format_reply(self, result: Dict[str, Any]) -> str:
+    def _format_reply_text(self, result: Dict[str, Any]) -> str:
+        """
+        Compose the English reply text from orchestrator result.
+        We translate the whole message later (one-shot) for UI cleanliness.
+        """
         if not isinstance(result, dict):
             return "Sorry, I hit an unexpected response."
 
-        action = result.get("action", "")
+        action = (result.get("action") or "").strip().lower()
+       
 
         if action == "ticket_create":
             reason = (result.get("reason") or "your issue").strip()
@@ -49,7 +131,10 @@ class TeamsBot(ActivityHandler):
         if action == "ticket_status":
             inc = (result.get("inc_number") or "the incident").strip()
             state = (result.get("state") or "").strip()
-            return f"ℹ️ Status for **{inc}**: {state}" if state else f"ℹ️ Status requested for **{inc}**."
+            extra = (result.get("short_description") or "").strip()
+            if state and extra:
+                return f"ℹ️ Status for **{inc}**: {state}\n{extra}"
+            return f"ℹ️ Status for **{inc}**: {state or 'requested'}"
 
         if action == "password_reset":
             text = (result.get("text") or "").strip()
@@ -60,65 +145,121 @@ class TeamsBot(ActivityHandler):
 
         if action == "legacy":
             original = (result.get("text") or "").strip()
-            return ("🤖 (Legacy route) I received: “{}”. You can say ‘raise a ticket’, "
-                    "‘status of INC…’, or ‘reset my password’.").format(original)
+            return (
+                "🤖 (Legacy route) I received: “{}”. You can say ‘raise a ticket’, "
+                "‘status of INC…’, or ‘reset my password’."
+            ).format(original)
 
-        return "Sorry, I couldn’t understand that. Try: ‘raise a ticket’, ‘status of INC0012345’, or ‘reset my password’."
+        if action == "propose_ticket":
+            reason = (result.get("reason") or "an issue").strip()
+            return f"I can open a ticket for **{reason}**. Do you want me to create it?"
 
-    # ---------- main ----------
+        return "I didn’t quite catch that. Try ‘help’."
+
+    # -------------------------------------------------------------------------
+    # Activity flow
+    # -------------------------------------------------------------------------
+
+    async def on_turn(self, turn_context: TurnContext):
+        if turn_context.activity.type == "message":
+            return await self.on_message_activity(turn_context)
+        return
+
     async def on_message_activity(self, turn_context: TurnContext):
-        # Trust Teams service URL for token reuse
-        MicrosoftAppCredentials.trust_service_url(turn_context.activity.service_url)
-
         raw_text = (turn_context.activity.text or "").strip()
         text_lc = raw_text.lower()
+        user = self._user_from_context(turn_context)
+        user_id = user.get("user_id") or ""
+        preferred = get_user_lang(user_id)  # 'en' or saved locale
+        teams_hint = (turn_context.activity.locale or "").lower()
 
-        # minimal user context
-        from_prop = getattr(turn_context.activity, "from_property", None)
-        user_ctx: Dict[str, Any] = {
-            "user_id": getattr(from_prop, "id", "") if from_prop else "",
-            "user_name": getattr(from_prop, "name", "") if from_prop else "",
-            "channel_id": getattr(turn_context.activity, "channel_id", ""),
-            "conversation_id": getattr(turn_context.activity.conversation, "id", ""),
-            "run_id": current_run_id(),
-        }
+        # Resolve locale: saved -> teams hint -> detect
+        user_lang = preferred or detect(raw_text, hint=teams_hint) or "en"
 
-        # 0) quick help
-        if text_lc in {"help", "menu", "options"}:
-            await self._send_help(turn_context)
+        # Language switching UX (config-driven)
+        if text_lc in {"change language", "language", "idioma", "cambiar idioma"} or text_lc == "noop_lang":
+            locs = enabled_locales()
+            msg = MessageFactory.text(t("current_language_choose", user_lang).format(lang=label_for(user_lang)))
+            actions = []
+            for code in locs.keys():
+                if code == user_lang:
+                    continue
+                actions.append(CardAction(type=ActionTypes.im_back, title=label_for(code), value=f"/language {code}"))
+            msg.suggested_actions = SuggestedActions(actions=actions)
+            await turn_context.send_activity(msg)
             return
 
-        # 1) deterministic “raise a ticket: …” → ALWAYS propose buttons here (no orchestrator dependency)
-        if text_lc.startswith("raise a ticket"):
-            reason = raw_text.split(":", 1)[1].strip() if ":" in raw_text else ""
-            await self._propose_ticket_ui(turn_context, reason)
-            return
-
-        # 2) button click → create_ticket:<reason>
-        if text_lc.startswith("create_ticket:"):
-            reason = raw_text.split(":", 1)[1].strip() if ":" in raw_text else ""
-            # pass a hard hint to orchestrator
-            user_ctx.update({"intent_hint": "create_ticket", "reason": reason})
-            result = await self.orchestrator.handle(f"create ticket: {reason}", user_ctx)
-            # if orchestrator still doesn’t create, provide a graceful fallback
-            if not isinstance(result, dict) or result.get("action") != "ticket_create":
-                await turn_context.send_activity(
-                    MessageFactory.text("I wasn’t able to create the ticket automatically. "
-                                        "Please try rephrasing or say ‘reset my password’ / ‘status of INC…’."))
-                return
-            await turn_context.send_activity(MessageFactory.text(self._format_reply(result)))
-            return
-
-        # 3) status of INC…
-        if text_lc.startswith("status of"):
-            m = re.search(r"\binc\d{6,}\b", text_lc)
+        if text_lc.startswith("/language"):
+            m = re.search(r"/language\s+([a-z]{2})", text_lc)
             if m:
-                inc = m.group(0).upper()
-                user_ctx.update({"intent_hint": "ticket_status", "inc_number": inc})
-                result = await self.orchestrator.handle(f"status of {inc}", user_ctx)
-                await turn_context.send_activity(MessageFactory.text(self._format_reply(result)))
-                return
+                target = m.group(1)
+                if target in enabled_locales().keys():
+                    set_user_lang(user_id, target)
+                    user_lang = target  # switch immediately
 
-        # 4) everything else → orchestrator
-        result = await self.orchestrator.handle(raw_text, user_ctx)
-        await turn_context.send_activity(MessageFactory.text(self._format_reply(result)))
+                    # localized confirmation
+                    lang_label = label_for(target)  # e.g., "Español"
+                    confirm = t("language_set", user_lang).format(lang=lang_label)
+                    await turn_context.send_activity(MessageFactory.text(confirm))
+
+                    cont = t("continue_below", user_lang)
+                    msg = MessageFactory.text(cont)
+                    msg.suggested_actions = self._language_suggested_actions(user_lang)
+                    await turn_context.send_activity(msg)
+                else:
+                    # unsupported message localized to user's current language (before switching)
+                    await turn_context.send_activity(
+                        MessageFactory.text(
+                            translate("Unsupported language.", "en", user_lang, banner=False)
+                        )
+                    )
+            else:
+                await turn_context.send_activity(
+                    MessageFactory.text(
+                        translate("Use `/language en` or `/language es`.", "en", user_lang, banner=False)
+                    )
+                )
+            return
+
+
+        # ---------------------------------------------------------------------
+        # Translate inbound -> EN (pivot), then orchestrate
+        # ---------------------------------------------------------------------
+        inbound_for_llm = raw_text if user_lang == "en" else translate(raw_text, user_lang, "en", banner=False)
+
+        try:
+            result = await self.orchestrator.handle(text=inbound_for_llm, user=user)
+        except Exception:
+            log.exception("Orchestrator error")
+            err_text_en = "Sorry, I ran into a problem handling that request."
+            err_text = err_text_en if user_lang == "en" else translate(err_text_en, "en", user_lang, banner=True)
+            await turn_context.send_activity(MessageFactory.text(err_text))
+            msg = MessageFactory.text(
+                "Try again or switch language." if user_lang == "en" else translate("Try again or switch language.", "en", user_lang, banner=True)
+            )
+            msg.suggested_actions = self._language_suggested_actions(user_lang)
+            await turn_context.send_activity(msg)
+            return
+
+        action = (result or {}).get("action", "")
+        if action == "help":
+            await self._send_help(turn_context, user_lang)
+            return
+
+        # If engine proposes a ticket, localize the proposal UI
+        if action == "propose_ticket":
+            await self._propose_ticket_ui(
+                turn_context,
+                reason_en=(result.get("reason") or ""),
+                tips_en=(result.get("tips") or ""),
+                user_lang=user_lang,
+            )
+            return
+
+        # Format normal reply (EN), then translate out once if needed
+        reply_en = self._format_reply_text(result or {})
+        reply_out = reply_en if user_lang == "en" else translate(reply_en, "en", user_lang, banner=True)
+
+        msg = MessageFactory.text(reply_out)
+        msg.suggested_actions = self._language_suggested_actions(user_lang)
+        await turn_context.send_activity(msg)

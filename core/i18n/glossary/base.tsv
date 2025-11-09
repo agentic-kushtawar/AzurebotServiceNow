@@ -1,0 +1,10 @@
+# one term per line or term<TAB>action<TAB>replacement
+# Default: a single column is treated as 'keep this as-is'
+VPN	keep
+MFA	keep
+SSO	keep
+ServiceNow	keep
+Azure AD	keep
+Teams	keep
+Outlook	keep
+Incidente	map	INCIDENTE   # example (not used yet by adapter, reserved for future)

@@ -9,5 +9,6 @@ def match(text: str, sess: dict) -> Intent | None:
 async def handle() -> str:
     return (
         "I can help with password reset, VPN/app access, installs, or how-to.\n"
-        "Try: **reset my password**."
+        "Try: **reset my password**.\n"
+        "_Type **change language** to switch._"
     )
