@@ -26,6 +26,7 @@ from core.telemetry.otel import setup_tracing, setup_log_export
 from core.metrics import METRICS
 import os, requests
 
+
 """ 
 GRAPH_TOKEN_URL = f"https://login.microsoftonline.com/{os.environ['BOT_MICROSOFT_APP_TENANT_ID']}/oauth2/v2.0/token"
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
@@ -42,6 +43,8 @@ BOT_SECRET = os.environ["BOT_MICROSOFT_APP_PASSWORD"]
 _ANSWERED: dict[str, float] = {}
 
 
+CALLS_AUTO_ANSWER = os.getenv("CALLS_AUTO_ANSWER", "true").lower() == "true"
+CALLS_FORWARD_TO = (os.getenv("CALLS_FORWARD_TO", "") or "").rstrip("/")
 
 
 app = FastAPI(title="Teams AI Service Desk (MVP)")
@@ -112,7 +115,7 @@ def answer_call(call_id: str):
 # Health
 @app.get("/healthz")
 def health():
-    return {"status": "ok"}
+    return {"status": "okk"}
 
 # Dev metrics (dev-only; don’t expose publicly without auth)
 @app.get("/metrics")
@@ -136,13 +139,34 @@ async def log_requests(request: Request, call_next):
     return resp
 
 
-@app.get("/calls/notifications")
-async def calls_validation(validationToken: str | None = None):
-    # Teams validation probe
-    if validationToken:
-        log.info("Calls validation ping received")
-        return PlainTextResponse(content=validationToken, status_code=200)
-    return PlainTextResponse(content="OK", status_code=200)
+@app.post("/calls/notifications")
+async def calls_notifications(request: Request):
+    payload = await request.json()
+    print("CALLS are NOTIFied", json.dumps(payload))
+
+    # Forward the exact payload to the Windows sidecar if configured
+    if CALLS_FORWARD_TO:
+        try:
+            r = requests.post(CALLS_FORWARD_TO, json=payload, timeout=10)
+            print(f"[CALL] Forwarded to sidecar -> {r.status_code}")
+        except Exception as e:
+            print(f"[CALL] Forward FAILED: {e}")
+
+    # Only auto-answer locally if explicitly enabled
+    if CALLS_AUTO_ANSWER:
+        for n in payload.get("value", []):
+            if n.get("changeType") == "created":
+                rd = n.get("resourceData", {}) or {}
+                if rd.get("state") == "incoming" and "id" in rd:
+                    call_id = rd["id"]
+                    try:
+                        status = answer_call(call_id)
+                        print(f"[CALL] LOCAL answer {call_id} -> {status}")
+                    except Exception as e:
+                        print(f"[CALL] answer failed for {call_id}: {e}")
+
+    return Response(status_code=202)
+
 
 
 # replace your POST handler body with this shape (keep your logging):
@@ -168,3 +192,22 @@ async def calls_notifications(request: Request):
             print(f"[CALL] Deleted/terminated {call_id} ({rd.get('terminationReason')})")
 
     return ack
+
+@app.post("/voice/call-event")
+async def voice_call_event(payload: dict, request: Request):
+    call_id = payload.get("callId", "")
+    evt = payload.get("event", "")
+    status = payload.get("status", "")
+    print(f"[VOICE][{request.client.host}] {evt} callId={call_id} status={status} — Connected to Call Server (Windows).")
+    return {"ok": True}
+
+@app.post("/voice/stt")
+async def voice_stt(payload: dict, request: Request):
+    text = (payload.get("text") or "").strip()
+    if not text:
+        print(f"[VOICE][{request.client.host}] (empty STT payload)")
+        return {"ok": True}
+    print(f"[VOICE][{request.client.host}] STT: {text}")
+    result = await orchestrator.handle(text, {"user_id": "", "channel_id": "msteams"})
+    # optional: send proactive Teams message here…
+    return {"ok": True}
