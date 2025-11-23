@@ -1,7 +1,7 @@
-# apps/teams_bot/routes.py
 import os
 import json
 import traceback
+import httpx
 
 from fastapi import APIRouter, Request, Response
 from botbuilder.core import (
@@ -18,15 +18,17 @@ from .bot import TeamsBot
 
 router = APIRouter()
 
-# Fixed Teams meeting URL for "Call me" POC
+# Fixed meeting URL
 TEAMS_VOICE_MEETING_URL = os.getenv("TEAMS_VOICE_MEETING_URL", "")
 
-# IMPORTANT: In single-tenant mode, set channel_auth_tenant to your AAD tenant ID
-# Otherwise the SDK uses the 'botframework.com' tenant and you get AADSTS700016.
+# Sidecar URL
+SIDECAR_BASE_URL = os.getenv("SIDECAR_BASE_URL", "http://localhost:5205")
+
+
 adapter_settings = BotFrameworkAdapterSettings(
     app_id=settings.BOT_MICROSOFT_APP_ID,
     app_password=settings.BOT_MICROSOFT_APP_PASSWORD,
-    channel_auth_tenant=settings.BOT_MICROSOFT_APP_TENANT_ID or None,  # <-- fix
+    channel_auth_tenant=settings.BOT_MICROSOFT_APP_TENANT_ID or None,
 )
 
 adapter = BotFrameworkAdapter(adapter_settings)
@@ -40,40 +42,35 @@ async def preflight() -> Response:
 
 @router.get("/api/messages")
 def info():
-    return {
-        "hint": "POST a Bot Framework Activity JSON here. Use Azure Bot Service / Teams to deliver messages."
-    }
+    return {"status": "Bot is running"}
 
 
 @router.post("/api/messages")
 async def messages(req: Request) -> Response:
     body = await req.body()
     activity = Activity().deserialize(json.loads(body.decode("utf-8")))
-    print(
-        f"DEBUG bot recipient.id from Teams: {activity.recipient and activity.recipient.id}"
-    )
 
-    # Trust the Teams service URL for the duration of this conversation
     MicrosoftAppCredentials.trust_service_url(activity.service_url)
 
     res = Response(status_code=201)
 
     try:
-        async def aux(turn_context: TurnContext):
-            # 🔹 Special-case: "call me" voice escalation
+        async def aux(turn: TurnContext):
+
+            # -------------------------------------------------------
+            # 🔹 1. User types "call me"
+            # -------------------------------------------------------
             if (
                 TEAMS_VOICE_MEETING_URL
-                and turn_context.activity.type == "message"
-                and turn_context.activity.text
+                and turn.activity.type == "message"
+                and turn.activity.text
             ):
-                text = turn_context.activity.text.strip().lower()
+                text = turn.activity.text.strip().lower()
+
                 if text in {"call me", "/callme", "callme"}:
                     card = HeroCard(
                         title="Starting a voice session",
-                        text=(
-                            "Click **Join call** to talk to ServiceBot "
-                            "in a Teams voice meeting."
-                        ),
+                        text="Click **Join call** to talk to ServiceBot.",
                         buttons=[
                             CardAction(
                                 type=ActionTypes.open_url,
@@ -82,23 +79,47 @@ async def messages(req: Request) -> Response:
                             )
                         ],
                     )
-                    await turn_context.send_activity(
+
+                    await turn.send_activity(
                         Activity(
                             type="message",
                             attachments=[CardFactory.hero_card(card)],
                         )
                     )
-                    # Do NOT send to orchestrator; we've handled this turn
+
+                    print("DEBUG: User requested call me → join card sent")
                     return
 
-            # 🔹 Normal path: existing bot logic
-            await bot.on_turn(turn_context)
+            # -------------------------------------------------------
+            # 🔹 2. User clicks "Join call"
+            #     In Teams this sends an invoke OR message
+            # -------------------------------------------------------
+            if turn.activity.type in {"invoke", "messageReaction"}:
+                print("DEBUG: User clicked join call (invoke/messageReaction detected)")
 
-        auth_header = req.headers.get("Authorization", "")
-        await adapter.process_activity(activity, auth_header, aux)
+                try:
+                    async with httpx.AsyncClient() as client:
+                        await client.post(
+                            f"{SIDECAR_BASE_URL}/media/bot/join_fixed_meeting",
+                            json={"meetingUrl": TEAMS_VOICE_MEETING_URL},
+                            timeout=10,
+                        )
+                    print("DEBUG: Successfully notified Sidecar to join meeting")
+                except Exception as e:
+                    print(f"ERROR: Sidecar join call failed: {e}")
+
+                return
+
+            # -------------------------------------------------------
+            # Default bot pipeline
+            # -------------------------------------------------------
+            await bot.on_turn(turn)
+
+        await adapter.process_activity(
+            activity, req.headers.get("Authorization", ""), aux
+        )
         return res
+
     except Exception:
         traceback.print_exc()
-        return Response(
-            content="Adapter error", status_code=500, media_type="text/plain"
-        )
+        return Response("Adapter error", 500)

@@ -1,0 +1,16 @@
+{
+  "lang_change": "שנה שפה",
+  "current_language_choose": "שפה נוכחית: {lang}. בחר:",
+  "english": "אנגלית",
+  "spanish": "ספרדית",
+  "hebrew": "עברית",
+  "help_text": "אתה יכול לנסות:\n- ליצור קריט ticket עם <סיבה>\n- מצב ticket\n- איפוס סיסמה\n- VPN לא מתחבר",
+  "propose_title": "אני יכול ליצור קריט ticket עבור:",
+  "propose_question": "תרצה שאיצור אותו עכשיו?",
+  "btn_create": "✅ צור ticket",
+  "btn_cancel": "❌ לא, תודה",
+  "created_prefix": "✅ ticket נוצר",
+  "created_for": "עבור",
+  "language_set": "השפה הוגדרה ל-{lang}.",
+  "continue_below": "אתה יכול להמשיך למטה."
+}

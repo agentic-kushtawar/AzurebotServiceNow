@@ -1,9 +1,9 @@
-# main.py
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import PlainTextResponse
 from loguru import logger
 from dotenv import load_dotenv
 import os, json, time, uuid, threading, requests, logging
+from typing import Any, Dict  # NEW
 
 # --- Telemetry & middleware ---
 from core.telemetry.otel import setup_tracing, setup_log_export
@@ -101,16 +101,59 @@ def answer_call(call_id: str) -> int:
         print(f"[CALL][ERROR] Cannot answer {call_id}: PUBLIC_BASE_URL not set.")
         return 0
 
-    token = get_graph_token()
+    try:
+        token = get_graph_token()
+    except Exception as e:
+        print(f"[CALL][ERROR] Token acquisition failed for {call_id}: {e}")
+        return 0
+
     url = f"https://graph.microsoft.com/v1.0/communications/calls/{call_id}/answer"
     body = {
         "callbackUri": f"{PUBLIC_BASE_URL}/calls/notifications",
         "acceptedModalities": ["audio"],
+        # NOTE: For app-hosted, you use appHostedMediaConfig from Windows side.
+        # Here we keep your existing serviceHostedMediaConfig behavior as-is.
         "mediaConfig": {"@odata.type": "#microsoft.graph.serviceHostedMediaConfig"},
     }
-    resp = requests.post(url, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=20)
-    print(f"[CALL] Answered {call_id} -> {resp.status_code} {resp.text}")
-    return resp.status_code
+    try:
+        resp = requests.post(
+            url,
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=20,
+        )
+        print(f"[CALL] Answered {call_id} -> {resp.status_code} {resp.text}")
+        return resp.status_code
+    except Exception as e:
+        print(f"[CALL][ERROR] /answer call failed for {call_id}: {e}")
+        return 0
+
+def _log_notification_summary(payload: Dict[str, Any]) -> None:
+    """
+    Extra debug: for each Graph notification, log changeType/state/direction/callId/terminationReason.
+    This does NOT change behavior – purely observability.
+    """
+    try:
+        values = payload.get("value") or []
+        for n in values:
+            change = (n.get("changeType") or "").lower()
+            rd = (n.get("resourceData") or {}) or {}
+            state = (rd.get("state") or "").lower()
+            direction = (rd.get("direction") or "").lower()
+            call_id = rd.get("id") or (n.get("resource", "/").split("/")[-1])
+            term_reason = rd.get("terminationReason") or ""
+            media_region = rd.get("mediaHostedRegion") or ""
+            log.info(
+                "CALL EVT → changeType=%s state=%s direction=%s callId=%s term=%s mediaRegion=%s",
+                change,
+                state,
+                direction,
+                call_id,
+                term_reason,
+                media_region,
+            )
+    except Exception as e:
+        log.error("CALL EVT summary logging failed: %s", e)
 
 # ====== Health & metrics ======
 @app.get("/healthz")
@@ -151,6 +194,15 @@ async def calls_notifications(request: Request):
         payload = {}
     print("CALLS are NOTIFied", json.dumps(payload))
 
+    # Extra structured summary per notification (purely logging)
+    _log_notification_summary(payload)
+
+    # Simple metric hook (non-breaking)
+    try:
+        METRICS.inc("calls_notifications_total")
+    except Exception:
+        pass
+
     # 1) ACK IMMEDIATELY to avoid Graph timeout
     ack = Response(status_code=202)
 
@@ -159,25 +211,59 @@ async def calls_notifications(request: Request):
         try:
             r = requests.post(CALLS_FORWARD_TO, json=payload, timeout=10)
             print(f"[CALL] Forwarded to sidecar -> {r.status_code}")
+            log.info(
+                "CALL FWD → status=%s url=%s",
+                r.status_code,
+                CALLS_FORWARD_TO,
+            )
         except Exception as e:
             print(f"[CALL] Forward FAILED: {e}")
+            log.error("CALL FWD FAILED → url=%s error=%s", CALLS_FORWARD_TO, e)
 
-    # 3) Optionally auto-answer locally
+    # 3) Optionally auto-answer locally (kept as-is; usually disabled for app-hosted)
     if CALLS_AUTO_ANSWER:
-        for n in payload.get("value", []):
-            change = (n.get("changeType") or "").lower()
-            rd = n.get("resourceData", {}) or {}
-            state = (rd.get("state") or "").lower()
-            direction = (rd.get("direction") or "").lower()
-            call_id = rd.get("id") or (n.get("resource", "/").split("/")[-1])
+        try:
+            for n in payload.get("value", []):
+                change = (n.get("changeType") or "").lower()
+                rd = (n.get("resourceData") or {}) or {}
+                state = (rd.get("state") or "").lower()
+                direction = (rd.get("direction") or "").lower()
+                call_id = rd.get("id") or (n.get("resource", "/").split("/")[-1])
 
-            # Consider both 'created' and 'updated' while still ringing/establishing
-            if direction == "incoming" and change in {"created", "updated"} and state in {"incoming", "establishing", "ringing"}:
-                if _should_answer(call_id):
-                    threading.Thread(target=answer_call, args=(call_id,), daemon=True).start()
-                    print(f"[CALL] Answer queued for {call_id} (state={state}, change={change})")
-            elif change == "deleted":
-                print(f"[CALL] Deleted/terminated {call_id} ({rd.get('terminationReason')})")
+                # Consider both 'created' and 'updated' while still ringing/establishing
+                if (
+                    direction == "incoming"
+                    and change in {"created", "updated"}
+                    and state in {"incoming", "establishing", "ringing"}
+                ):
+                    if _should_answer(call_id):
+                        threading.Thread(
+                            target=answer_call,
+                            args=(call_id,),
+                            daemon=True,
+                        ).start()
+                        print(
+                            f"[CALL] Answer queued for {call_id} "
+                            f"(state={state}, change={change})"
+                        )
+                        log.info(
+                            "CALL AUTO-ANSWER QUEUED → callId=%s state=%s change=%s",
+                            call_id,
+                            state,
+                            change,
+                        )
+                elif change == "deleted":
+                    print(
+                        f"[CALL] Deleted/terminated {call_id} "
+                        f"({rd.get('terminationReason')})"
+                    )
+                    log.info(
+                        "CALL TERMINATED → callId=%s reason=%s",
+                        call_id,
+                        rd.get("terminationReason"),
+                    )
+        except Exception as e:
+            log.error("CALL AUTO-ANSWER block failed: %s", e)
 
     return ack
 
@@ -187,7 +273,17 @@ async def voice_call_event(payload: dict, request: Request):
     call_id = payload.get("callId", "")
     evt = payload.get("event", "")
     status = payload.get("status", "")
-    print(f"[VOICE][{request.client.host}] {evt} callId={call_id} status={status} — Connected to Call Server (Windows).")
+    print(
+        f"[VOICE][{request.client.host}] {evt} "
+        f"callId={call_id} status={status} — Connected to Call Server (Windows)."
+    )
+    log.info(
+        "VOICE EVENT → host=%s event=%s callId=%s status=%s",
+        request.client.host,
+        evt,
+        call_id,
+        status,
+    )
     return {"ok": True}
 
 @app.post("/voice/stt")
@@ -197,6 +293,11 @@ async def voice_stt(payload: dict, request: Request):
         print(f"[VOICE][{request.client.host}] (empty STT payload)")
         return {"ok": True}
     print(f"[VOICE][{request.client.host}] STT: {text}")
+    log.info(
+        "VOICE STT → host=%s text=%s",
+        request.client.host,
+        text,
+    )
     # If you use an orchestrator, keep your existing import/usage.
     try:
         from core.orchestrator import orchestrator  # your project’s module
