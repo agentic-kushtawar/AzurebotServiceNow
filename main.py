@@ -9,12 +9,13 @@ from typing import Any, Dict  # NEW
 from core.telemetry.otel import setup_tracing, setup_log_export
 from middleware.telemetry import TelemetryMiddleware
 from core.metrics import METRICS
+from core.orchestrator.engine import Orchestrator
 
 # --- Routers (import BEFORE include) ---
 from apps.teams_bot.routes import router as bot_router
 from skills.directory_mock import router as directory_router
 from dev.dev_routes import router as dev_router
-
+from apps.teams_bot.calls import router as calls_router
 
 load_dotenv(override=True)
 
@@ -47,6 +48,7 @@ _ANSWERED: dict[str, float] = {}
 # ====== App ======
 app = FastAPI(title="Teams AI Service Desk (MVP)")
 log = logging.getLogger("app")
+voice_orchestrator = Orchestrator()
 
 setup_tracing(app)
 setup_log_export()
@@ -168,6 +170,7 @@ def metrics():
 app.include_router(bot_router, prefix="")            # /api/messages (+OPTIONS)
 app.include_router(directory_router, prefix="/mock") # /mock/directory/reset-password
 app.include_router(dev_router, prefix="")            # /dev/messages (local testing)
+app.include_router(calls_router, prefix="")
 
 # ====== Request logging ======
 @app.middleware("http")
@@ -189,6 +192,7 @@ async def calls_notifications(request: Request):
     and (optionally) answer the call in a background thread.
     """
     try:
+        print("Inside Call")
         payload = await request.json()
     except Exception:
         payload = {}
@@ -253,14 +257,16 @@ async def calls_notifications(request: Request):
                             change,
                         )
                 elif change == "deleted":
+                    term = rd.get("terminationReason") or "unknown"
+                    initiator = rd.get("terminationReasonCode") or rd.get("terminationSource") or "unspecified"
                     print(
-                        f"[CALL] Deleted/terminated {call_id} "
-                        f"({rd.get('terminationReason')})"
+                        f"[CALL][END] Terminated call={call_id} reason={term} initiator={initiator}"
                     )
                     log.info(
-                        "CALL TERMINATED → callId=%s reason=%s",
+                        "CALL TERMINATED → callId=%s reason=%s initiator=%s",
                         call_id,
-                        rd.get("terminationReason"),
+                        term,
+                        initiator,
                     )
         except Exception as e:
             log.error("CALL AUTO-ANSWER block failed: %s", e)
@@ -289,6 +295,8 @@ async def voice_call_event(payload: dict, request: Request):
 @app.post("/voice/stt")
 async def voice_stt(payload: dict, request: Request):
     text = (payload.get("text") or "").strip()
+    call_id = (payload.get("callId") or "").strip()
+    user_hint = (payload.get("userId") or call_id or request.client.host or "voice")
     if not text:
         print(f"[VOICE][{request.client.host}] (empty STT payload)")
         return {"ok": True}
@@ -298,10 +306,19 @@ async def voice_stt(payload: dict, request: Request):
         request.client.host,
         text,
     )
-    # If you use an orchestrator, keep your existing import/usage.
+    # Voice orchestrator bridge – mirrors Teams chat intent handling for STT input.
     try:
-        from core.orchestrator import orchestrator  # your project’s module
-        await orchestrator.handle(text, {"user_id": "", "channel_id": "msteams"})
-    except Exception:
-        pass
-    return {"ok": True}
+        result = await voice_orchestrator.handle(
+            text,
+            {
+                "user_id": user_hint,
+                "user_name": payload.get("userName") or "",
+                "user_email": payload.get("userEmail") or "",
+                "channel": "voice",
+                "call_id": call_id,
+            },
+        )
+    except Exception as exc:
+        log.exception("VOICE STT orchestrator failure: %s", exc)
+        return {"ok": False, "error": "orchestrator_failed"}
+    return {"ok": True, "result": result}
