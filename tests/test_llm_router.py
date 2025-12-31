@@ -33,4 +33,15 @@ async def test_router_fallbacks_on_bad_json(monkeypatch):
     router = LLMIntentRouter(llm)
     res = await router.classify("hello")
     # schema ensures a valid object even on bad JSON
-    assert res.intent in {"ticket_create","ticket_status","password_reset","vpn","help","other"}
+    assert res.intent in {
+        "ticket_create",
+        "ticket_status",
+        "password_reset",
+        "vpn",
+        "help",
+        "greeting",
+        "bot_profile",
+        "ticket_howto",
+        "incident_intel",
+        "other",
+    }

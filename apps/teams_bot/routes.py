@@ -12,6 +12,7 @@ from botbuilder.core import (
     BotFrameworkAdapter,
     TurnContext,
     CardFactory,
+    MessageFactory,
 )
 from botbuilder.schema import Activity, HeroCard, CardAction, ActionTypes
 from botframework.connector.auth import MicrosoftAppCredentials
@@ -129,6 +130,9 @@ async def messages(req: Request) -> Response:
 
                 if text in {"call me", "/callme", "callme"}:
                     print("inside callme trigger")
+                    await turn.send_activity(
+                        MessageFactory.text("Generating meeting event… hang tight.")
+                    )
                     await _reset_call_thread()
                     await asyncio.sleep(1.0)
                     await _sidecar_join(reason="callme_auto")

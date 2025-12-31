@@ -3,9 +3,11 @@
   "current_language_choose": "Current language: {lang}. Choose:",
   "english": "English",
   "spanish": "Español",
+  "german": "Deutsch",
 
-  "help_text": "You can try:\n• “raise a ticket: <reason>”\n• “status of INC0012345”\n• “reset my password”\n• “vpn not connecting”",
-  "switch_hint": "_Type **/language es** or choose below to switch._",
+  "greeting_text": "Hi there. My name is Breakvoice, your virtual service desk. I can triage ServiceNow tickets, check incident status, reset passwords, troubleshoot VPN issues. If you want to know about my capabilities, just say help.",
+  "help_text": "I can chat in English, Spanish, or German, and I currently speak in English.\nYou can try:\n• “raise a ticket: <reason>”\n• “status of INC0012345”\n• “reset my password”\n• “vpn not connecting”",
+  "switch_hint": "_Type **/language es** or **/language de**, or choose below to switch._",
 
   "propose_title": "🛠 I can raise a ticket for:",
   "propose_question": "Would you like me to create it?",
@@ -17,5 +19,19 @@
   "created_for": "for",
 
   "language_set": "Language set to {lang}.",
-  "continue_below": "You can continue below."
+  "continue_below": "You can continue below.",
+
+  "capabilities_overview": "I can triage ServiceNow tickets, check incident status, reset passwords, troubleshoot VPN issues, and chat in English, Spanish, or German. If you want to know more, just say \"help\"."
+  ,
+  "hold_snow": "Please hold while I check ServiceNow.",
+  "hold_intune": "Fetching from Microsoft Intune, please hold.",
+  "intune_source": "Fetched from Microsoft Intune.",
+  "incident_intel_title": "Recurring Incident Intelligence",
+  "incident_intel_subtitle": "Top recurring issues (last 30 days).",
+  "incident_intel_issue": "Issue",
+  "incident_intel_count": "Count",
+  "incident_intel_trend": "Trend",
+  "incident_intel_group": "Group",
+  "incident_intel_no_repeats": "No repeated incidents detected in the last 30 days.",
+  "open_dashboard": "Open Dashboard"
 }

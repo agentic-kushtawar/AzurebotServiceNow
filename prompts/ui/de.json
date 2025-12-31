@@ -1,0 +1,36 @@
+{
+  "lang_change": "Sprache ändern",
+  "current_language_choose": "Aktuelle Sprache: {lang}. Wähle:",
+  "english": "Englisch",
+  "spanish": "Spanisch",
+  "german": "Deutsch",
+
+  "greeting_text": "Hallo.",
+  "help_text": "Ich kann auf Englisch, Spanisch oder Deutsch chatten und spreche momentan Englisch.\nDu kannst ausprobieren:\n• „Ticket eröffnen: <Grund>“\n• „Status von INC0012345“\n• „mein Passwort zurücksetzen“\n• „vpn verbindet nicht“",
+  "switch_hint": "_Gib **/language es** oder **/language de** ein oder wähle unten zum Wechseln._",
+
+  "propose_title": "🛠 Ich kann ein Ticket eröffnen für:",
+  "propose_question": "Soll ich es erstellen?",
+
+  "btn_create": "✅ Ticket erstellen",
+  "btn_cancel": "Nein danke",
+
+  "created_prefix": "✅ Ticket erstellt",
+  "created_for": "für",
+
+  "language_set": "Sprache auf {lang} gesetzt.",
+  "continue_below": "Du kannst unten weiterschreiben.",
+
+  "capabilities_overview": "Ich kann ServiceNow-Tickets triagieren, Incident-Status prüfen, Passwörter zurücksetzen, bei VPN-Problemen helfen und auf Englisch, Spanisch oder Deutsch chatten. Wenn du mehr wissen willst, sag einfach \"help\".",
+  "hold_snow": "Bitte kurz warten, während ich ServiceNow prüfe.",
+  "hold_intune": "Daten werden von Microsoft Intune abgerufen, bitte warten.",
+  "intune_source": "Aus Microsoft Intune abgerufen.",
+  "incident_intel_title": "Wiederkehrende Incident-Intelligenz",
+  "incident_intel_subtitle": "Top wiederkehrende Issues (letzte 30 Tage).",
+  "incident_intel_issue": "Issue",
+  "incident_intel_count": "Anzahl",
+  "incident_intel_trend": "Trend",
+  "incident_intel_group": "Gruppe",
+  "incident_intel_no_repeats": "Keine wiederkehrenden Incidents in den letzten 30 Tagen gefunden.",
+  "open_dashboard": "Dashboard öffnen"
+}

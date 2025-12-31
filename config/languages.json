@@ -2,10 +2,12 @@
   "default": "en",
   "locales": {
     "en": { "enabled": true,  "label": "English",  "beta": false },
-    "es": { "enabled": true,  "label": "Español",  "beta": true  }
+    "es": { "enabled": true,  "label": "Español",  "beta": true  },
+    "de": { "enabled": true,  "label": "Deutsch",  "beta": true  }
   },
   "banners": {
     "en": "Temporarily responding in English due to a translation issue.",
-    "es": "Temporalmente respondo en inglés por un problema de traducción."
+    "es": "Temporalmente respondo en inglés por un problema de traducción.",
+    "de": "Ich antworte vorübergehend auf Englisch wegen eines Übersetzungsproblems."
   }
 }

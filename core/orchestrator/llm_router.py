@@ -4,12 +4,13 @@ import os, re, pathlib
 from pydantic import BaseModel, Field
 from core.llm.client import LLM
 
-_ALLOWED = "ticket_create|ticket_status|password_reset|vpn|help|other"
+_ALLOWED = "ticket_create|ticket_status|ticket_update_status|password_reset|vpn|help|greeting|bot_profile|ticket_howto|repeat_last|integration|incident_intel|intune_device_status|intune_device_restart|intune_device_apps|language_set|sop_upload|sop_latest|sop_validate|other"
 
 class IntentResult(BaseModel):
     intent: str = Field(default="other", pattern=f"^({_ALLOWED})$")
     reason: str = ""
     inc_number: str = ""
+    status: str = ""
 
 class LLMIntentRouter:
     def __init__(self, llm: LLM):
@@ -23,7 +24,7 @@ class LLMIntentRouter:
             return path.read_text(encoding="utf-8").strip()
         return (
             "You classify IT service desk requests. "
-            "Return strict JSON with keys: intent, reason, inc_number. "
+            "Return strict JSON with keys: intent, reason, inc_number, status. "
             f"Allowed intents: {_ALLOWED}. "
             "If no incident number, set inc_number to ''."
         )
@@ -39,4 +40,5 @@ class LLMIntentRouter:
         res.intent = (res.intent or "other").strip().lower()
         res.reason = (res.reason or "").strip()
         res.inc_number = self._normalize(res.inc_number)
+        res.status = (res.status or "").strip().lower().replace(" ", "_")
         return res

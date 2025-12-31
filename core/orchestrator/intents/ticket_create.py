@@ -9,18 +9,27 @@ from core.snow import get_snow
 from config.settings import settings
 
 CREATE_PATTERNS = [
-    re.compile(r"^\s*open\s+(?:a\s+)?ticket\s*[:\-]?\s*(?P<reason>.+)$", re.I),
-    re.compile(r"^\s*create\s+(?:an?\s+)?(incident|ticket)\s*(?:for\s+)?(?P<reason>.+)$", re.I),
+    re.compile(r"^\s*(?:please\s+)?open\s+(?:a\s+)?ticket\s*[:\-]?\s*(?P<reason>.+)$", re.I),
+    re.compile(r"^\s*(?:please\s+)?create\s+(?:an?\s+)?(incident|ticket)\s*(?:for\s+)?(?P<reason>.+)$", re.I),
+    re.compile(r"^\s*(?:please\s+)?(raise|log|file|submit)\s+(?:an?\s+)?(incident|ticket)\s*(?:for\s+)?(?P<reason>.+)$", re.I),
 ]
-TERSE_CREATE = re.compile(r"^\s*(open\s+(?:a\s+)?ticket|create\s+(?:an?\s+)?(incident|ticket))\s*$", re.I)
+TERSE_CREATE = re.compile(
+    r"^\s*(open\s+(?:a\s+)?ticket|create\s+(?:an?\s+)?(incident|ticket)|(raise|log|file|submit)\s+(?:an?\s+)?(incident|ticket))\s*$",
+    re.I,
+)
 
+
+_PRONOUN_REASON = {"this", "that", "it", "this issue", "that issue", "this problem", "that problem", "this one", "that one"}
 
 def detect_ticket_create(text: str) -> Tuple[bool, str]:
     t = (text or "").strip()
     for pat in CREATE_PATTERNS:
         m = pat.match(t)
         if m:
-            return True, (m.group("reason") or "").strip()
+            reason = (m.group("reason") or "").strip()
+            if reason.lower() in _PRONOUN_REASON:
+                reason = ""
+            return True, reason
     if TERSE_CREATE.match(t):
         return True, ""
     return False, ""

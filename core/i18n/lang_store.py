@@ -1,6 +1,6 @@
 # core/i18n/lang_store.py
 from __future__ import annotations
-from typing import Optional, Literal
+from typing import Optional
 
 # Prefer your session store if available; else simple in-memory map
 try:
@@ -8,7 +8,7 @@ try:
 except Exception:
     session_for = None  # type: ignore
 
-Lang = Literal["en", "es"]
+Lang = str
 
 _mem = {}
 

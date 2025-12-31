@@ -13,6 +13,14 @@ class Settings(BaseSettings):
     BOT_MICROSOFT_APP_PASSWORD: str = ""
     BOT_MICROSOFT_APP_TENANT_ID: str = ""  # used only if single-tenant
     MicrosoftAppType: str = Field(default="MultiTenant", alias="MicrosoftAppType")
+    BOT_PERSONA_NAME: str = "Break Voice"
+    BOT_PERSONA_ROLE: str = "your virtual Service Desk assistant"
+    BOT_PERSONA_TAGLINE: str = "I can triage tickets, check incidents, and troubleshoot common issues."
+
+    # --- Microsoft Graph (Entra ID) ---
+    GRAPH_TENANT_ID: str = ""
+    GRAPH_CLIENT_ID: str = ""
+    GRAPH_CLIENT_SECRET: str = ""
 
     # --- Teams App packaging / public URL ---
     TEAMS_APP_ID: str = ""
@@ -37,6 +45,7 @@ class Settings(BaseSettings):
 
     # --- Localization / Translator ---
     FEATURE_LANG_ES_ENABLED: bool = True
+    FEATURE_LANG_DE_ENABLED: bool = True
     AZURE_TRANSLATOR_ENDPOINT: str = ""
     AZURE_TRANSLATOR_KEY: str = ""
     AZURE_TRANSLATOR_REGION: str = ""
@@ -45,6 +54,20 @@ class Settings(BaseSettings):
     FEATURE_VOICE_ENABLED: bool = False
     AZURE_SPEECH_KEY: str = ""
     AZURE_SPEECH_REGION: str = ""
+
+    # --- Lab Notes (voice dictation uploads) ---
+    LAB_NOTES_BLOB_CONNECTION_STRING: str = ""
+    LAB_NOTES_BLOB_CONTAINER: str = "lab-transcripts"
+    LAB_NOTES_BLOB_PREFIX: str = ""
+    LAB_NOTES_DEFAULT_USER: str = ""
+    LAB_NOTES_ENVIRONMENT: str = "Lab"
+    LAB_NOTES_SOURCE: str = "Teams EchoBot Voice"
+    LAB_SOP_JSON: str = ""
+    LAB_SOP_BLOB_CONTAINER: str = "lab-sops"
+    LAB_SOP_BLOB_PREFIX: str = "lab-sops"
+    LAB_SOP_BLOB_PATH: str = ""
+    LAB_VALIDATION_BLOB_CONTAINER: str = "lab-validations"
+    LAB_VALIDATION_BLOB_PREFIX: str = "lab-validations"
 
     # --- Calling (ACS / RTM placeholders) ---
     ACS_CONNECTION_STRING: str = ""
@@ -62,6 +85,19 @@ class Settings(BaseSettings):
     LOG_PII_SAMPLES: bool = False
     PII_HASH_SALT: str = "change_me_32+chars"
 
+    # --- Session Memory ---
+    SESSION_STORE: str = "memory"  # memory | redis
+    REDIS_URL: str = ""
+    SESSION_TTL_SECS: int = 2700
+
+    # --- Incident Intelligence ---
+    INCIDENT_INTEL_DAYS: int = 30
+    INCIDENT_INTEL_THRESHOLD: int = 2
+    INCIDENT_INTEL_ACTIVE_ONLY: bool = True
+    INCIDENT_INTEL_DEBUG: bool = False
+    FEATURE_LLM_INCIDENT_NORMALIZE: bool = False
+    INCIDENT_INTEL_LLM_MAX_ISSUES: int = 50
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 
     # -------- helpers ----------
@@ -69,7 +105,8 @@ class Settings(BaseSettings):
         """For debug logs – hides secrets."""
         hidden = {"BOT_MICROSOFT_APP_PASSWORD", "SNOW_PASSWORD", "OPENAI_API_KEY",
                   "AZURE_TRANSLATOR_KEY", "AZURE_SPEECH_KEY", "APPINSIGHTS_CONNECTION_STRING",
-                  "ACS_CONNECTION_STRING", "PII_HASH_SALT"}
+                  "ACS_CONNECTION_STRING", "PII_HASH_SALT", "GRAPH_CLIENT_SECRET",
+                  "LAB_NOTES_BLOB_CONNECTION_STRING"}
         d = self.model_dump()
         for k in list(d.keys()):
             if k in hidden and d.get(k):
@@ -105,13 +142,14 @@ def dump_runtime_flags() -> None:
     Put this after logging configuration and before the app starts serving.
     """
     log.info(
-        "RUNTIME → SNOW=%s | LLM_ROUTER=%s | LLM_PROVIDER=%s | TIMEOUT=%.1fs | TEMP=%.2f | LANG_ES=%s | VOICE=%s | LOG_LEVEL=%s",
+        "RUNTIME → SNOW=%s | LLM_ROUTER=%s | LLM_PROVIDER=%s | TIMEOUT=%.1fs | TEMP=%.2f | LANG_ES=%s | LANG_DE=%s | VOICE=%s | LOG_LEVEL=%s",
         settings.FEATURE_SNOW_ENABLED,
         settings.FEATURE_LLM_ROUTER,
         settings.LLM_PROVIDER,
         settings.LLM_TIMEOUT_SECS,
         settings.LLM_TEMPERATURE,
         settings.FEATURE_LANG_ES_ENABLED,
+        settings.FEATURE_LANG_DE_ENABLED,
         settings.FEATURE_VOICE_ENABLED,
         settings.LOG_LEVEL,
     )

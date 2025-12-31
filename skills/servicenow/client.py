@@ -11,6 +11,8 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 import base64
 import time
+import os
+from urllib.parse import quote_plus
 import httpx
 from loguru import logger
 from typing import Optional
@@ -169,3 +171,57 @@ class ServiceNowClient:
         payload = {"comments": comment}
         await self._request("PATCH", f"/api/now/table/incident/{sys_id}", json=payload)
         return True
+
+    async def update_incident_status(self, number: str, *, state: str, reason: str) -> Optional[Dict[str, Any]]:
+        """
+        Update incident state and add a work note. Returns updated record or None.
+        """
+        inc = await self.get_incident(number)
+        if not inc:
+            return None
+        sys_id = inc["sys_id"]
+        payload: Dict[str, Any] = {"state": state}
+        if reason:
+            payload["work_notes"] = reason
+        resp = await self._request("PATCH", f"/api/now/table/incident/{sys_id}", json=payload)
+        return resp.json().get("result") or None
+
+    async def get_incident_stats(
+        self,
+        *,
+        query: str,
+        group_by: str = "short_description",
+    ) -> list[Dict[str, Any]]:
+        """
+        Call the ServiceNow Stats API for incident aggregation.
+        Returns list of grouped records with count and group_by field.
+        """
+        params = (
+            f"sysparm_query={quote_plus(query)}"
+            f"&sysparm_group_by={quote_plus(group_by)}"
+            f"&sysparm_count=true"
+            f"&sysparm_display_value=true"
+        )
+        resp = await self._request("GET", f"/api/now/stats/incident?{params}")
+        data = resp.json()
+        if os.getenv("SNOW_STATS_DEBUG", "false").lower() == "true":
+            logger.info("SNOW stats query=%s", query)
+            logger.info("SNOW stats raw=%s", str(data)[:2000])
+        return data.get("result") or []
+
+    async def get_incident_total(self, *, query: str) -> int:
+        """
+        Return total incident count for a query via Stats API.
+        """
+        params = (
+            f"sysparm_query={quote_plus(query)}"
+            f"&sysparm_count=true"
+        )
+        resp = await self._request("GET", f"/api/now/stats/incident?{params}")
+        data = resp.json() or {}
+        result = data.get("result") or {}
+        stats = result.get("stats") or {}
+        try:
+            return int(stats.get("count") or 0)
+        except Exception:
+            return 0

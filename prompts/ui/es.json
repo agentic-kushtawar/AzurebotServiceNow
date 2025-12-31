@@ -3,9 +3,11 @@
   "current_language_choose": "Idioma actual: {lang}. Elige:",
   "english": "Inglés",
   "spanish": "Español",
+  "german": "Alemán",
 
-  "help_text": "Puedes probar:\n• «crear un ticket: <motivo>»\n• «estado de INC0012345»\n• «restablecer mi contraseña»\n• «vpn no conecta»",
-  "switch_hint": "_Escribe **/language en** o elige abajo para cambiar._",
+  "greeting_text": "Hola.",
+  "help_text": "Puedo chatear en inglés, español o alemán, y actualmente hablo en inglés.\nPuedes probar:\n• «crear un ticket: <motivo>»\n• «estado de INC0012345»\n• «restablecer mi contraseña»\n• «vpn no conecta»",
+  "switch_hint": "_Escribe **/language en** o **/language de**, o elige abajo para cambiar._",
 
   "propose_title": "🛠 Puedo crear un ticket para:",
   "propose_question": "¿Quieres que lo cree ahora?",
@@ -17,5 +19,18 @@
   "created_for": "para",
 
   "language_set": "Idioma configurado a {lang}.",
-  "continue_below": "Puedes continuar abajo."
+  "continue_below": "Puedes continuar abajo.",
+
+  "capabilities_overview": "Puedo gestionar tickets de ServiceNow, consultar el estado de incidentes, restablecer contraseñas, ayudar con problemas de VPN y chatear en inglés, español o alemán. Si quieres saber más, solo di \"help\".",
+  "hold_snow": "Espera un momento mientras reviso ServiceNow.",
+  "hold_intune": "Obteniendo datos de Microsoft Intune, por favor espera.",
+  "intune_source": "Obtenido de Microsoft Intune.",
+  "incident_intel_title": "Inteligencia de Incidentes Recurrentes",
+  "incident_intel_subtitle": "Principales incidencias recurrentes (últimos 30 días).",
+  "incident_intel_issue": "Incidencia",
+  "incident_intel_count": "Cantidad",
+  "incident_intel_trend": "Tendencia",
+  "incident_intel_group": "Grupo",
+  "incident_intel_no_repeats": "No se detectaron incidencias repetidas en los últimos 30 días.",
+  "open_dashboard": "Abrir panel"
 }
